@@ -44,7 +44,7 @@ func main() {
 	var newURL string
 
 	for _, item := range newItems {
-		fmt.Println("Modifying " + item.Title)
+		fmt.Println("Processing " + item.Title)
 		newURL = processItem(item, podcast.Title, *start, *end)
 		fmt.Println("converted url : " + newURL)
 	}
