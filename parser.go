@@ -166,35 +166,37 @@ func processMP3(url string, headSkip, tailSkip int, fn string) {
 	}
 	defer outFile.Close()
 
-	skipped := 0
-	d := mp3.NewDecoder(bytes.NewReader(buf))
-	var f mp3.Frame
-	var duration int
+	if headSkip == 0 && tailSkip == 0 {
+		outFile.Write(buf)
+	} else {
+		skipped := 0
+		d := mp3.NewDecoder(bytes.NewReader(buf))
+		var f mp3.Frame
+		var duration int
 
-	origDuration := getDuration(d)
-	tailSkip = origDuration - tailSkip
+		origDuration := getDuration(d)
+		tailSkip = origDuration - tailSkip
 
-	d = mp3.NewDecoder(bytes.NewReader(buf))
-	duration = 0
-	for {
-		if err := d.Decode(&f, &skipped); err != nil {
-			fmt.Println(err)
-			return
+		d = mp3.NewDecoder(bytes.NewReader(buf))
+		duration = 0
+		for {
+			if err := d.Decode(&f, &skipped); err != nil {
+				fmt.Println(err)
+				return
+			}
+			duration = duration + int(f.Duration())
+
+			buf, err := ioutil.ReadAll(f.Reader())
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+
+			if duration > headSkip && duration < tailSkip {
+				outFile.Write(buf)
+			}
 		}
-		duration = duration + int(f.Duration())
-
-		buf, err := ioutil.ReadAll(f.Reader())
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		if duration > headSkip && duration < tailSkip {
-			outFile.Write(buf)
-		}
-
 	}
-
 }
 
 func getDuration(d *mp3.Decoder) int {
