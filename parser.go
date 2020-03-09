@@ -21,24 +21,14 @@ import (
 func main() {
 	parser := argparse.NewParser("print", "Fetch Podcast url and cut mp3s")
 	url := parser.String("u", "url", &argparse.Options{Required: true, Help: "URL for podcast rss"})
-	startS := parser.String("s", "start", &argparse.Options{Help: "Time to cut at the start"})
-	endS := parser.String("e", "end", &argparse.Options{Help: "Time to cut at the end"})
+	start := parser.Int("s", "start", &argparse.Options{Help: "Time to cut at the start", Default: 0})
+	end := parser.Int("e", "end", &argparse.Options{Help: "Time to cut at the end", Default: 0})
+
 	err := parser.Parse(os.Args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
 		return
 	}
-
-	start, err := strconv.ParseInt(*startS, 0, 64)
-	if err != nil {
-		panic(err)
-	}
-
-	end, err := strconv.ParseInt(*endS, 0, 64)
-	if err != nil {
-		panic(err)
-	}
-
 	database, _ := sql.Open("sqlite3", "./podcasts.db")
 
 	fmt.Println("Fetching Podcast")
@@ -55,7 +45,7 @@ func main() {
 
 	for _, item := range newItems {
 		fmt.Println("Modifying " + item.Title)
-		newURL = processItem(item, podcast.Title, start, end)
+		newURL = processItem(item, podcast.Title, *start, *end)
 		fmt.Println("converted url : " + newURL)
 	}
 
@@ -123,7 +113,7 @@ func insertToPodcast(podcast podfeed.Podcast, database *sql.DB) []*podfeed.Item 
 
 }
 
-func processItem(item *podfeed.Item, dname string, start, end int64) string {
+func processItem(item *podfeed.Item, dname string, start, end int) string {
 	url := item.Enclosure.Url
 	filename := filepath.Join(dname + "/" + item.Title + ".mp3")
 	processMP3(url, start, end, filename)
@@ -152,7 +142,7 @@ func initializeDB(podcast podfeed.Podcast, database *sql.DB) {
 	statement.Exec()
 }
 
-func processMP3(url string, headSkip, tailSkip int64, fn string) {
+func processMP3(url string, headSkip, tailSkip int, fn string) {
 	// nanosec to millsec
 	headSkip *= 1000 * 1000
 	tailSkip *= 1000 * 1000
@@ -179,7 +169,7 @@ func processMP3(url string, headSkip, tailSkip int64, fn string) {
 	skipped := 0
 	d := mp3.NewDecoder(bytes.NewReader(buf))
 	var f mp3.Frame
-	var duration int64
+	var duration int
 
 	origDuration := getDuration(d)
 	tailSkip = origDuration - tailSkip
@@ -191,7 +181,7 @@ func processMP3(url string, headSkip, tailSkip int64, fn string) {
 			fmt.Println(err)
 			return
 		}
-		duration = duration + int64(f.Duration())
+		duration = duration + int(f.Duration())
 
 		buf, err := ioutil.ReadAll(f.Reader())
 		if err != nil {
@@ -207,9 +197,9 @@ func processMP3(url string, headSkip, tailSkip int64, fn string) {
 
 }
 
-func getDuration(d *mp3.Decoder) int64 {
+func getDuration(d *mp3.Decoder) int {
 	var f mp3.Frame
-	var duration int64
+	var duration int
 	skipped := 0
 	duration = 0
 	for {
@@ -217,7 +207,7 @@ func getDuration(d *mp3.Decoder) int64 {
 			fmt.Println(err)
 			return duration
 		}
-		duration = duration + int64(f.Duration())
+		duration = duration + int(f.Duration())
 	}
 }
 
