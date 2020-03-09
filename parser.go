@@ -23,6 +23,7 @@ func main() {
 	url := parser.String("u", "url", &argparse.Options{Required: true, Help: "URL for podcast rss"})
 	start := parser.Int("s", "start", &argparse.Options{Help: "Time to cut at the start", Default: 0})
 	end := parser.Int("e", "end", &argparse.Options{Help: "Time to cut at the end", Default: 0})
+	numThreads := parser.Int("n", "threads", &argparse.Options{Help: "Number of threads to use", Default: 10})
 
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -41,14 +42,16 @@ func main() {
 	initializeDB(podcast, database)
 	newItems := insertToPodcast(podcast, database)
 
-	var newURL string
+	sem := make(chan int, *numThreads)
 
 	for _, item := range newItems {
-		fmt.Println("Processing " + item.Title)
-		newURL = processItem(item, podcast.Title, *start, *end)
-		fmt.Println("converted url : " + newURL)
-	}
+		sem <- 1
 
+		go func(item *podfeed.Item, dname string, start, end int) {
+			processItem(item, podcast.Title, start, end)
+			<-sem
+		}(item, podcast.Title, *start, *end)
+	}
 }
 
 func insertToPodcast(podcast podfeed.Podcast, database *sql.DB) []*podfeed.Item {
@@ -114,6 +117,7 @@ func insertToPodcast(podcast podfeed.Podcast, database *sql.DB) []*podfeed.Item 
 }
 
 func processItem(item *podfeed.Item, dname string, start, end int) string {
+	fmt.Println("Processing " + item.Title)
 	url := item.Enclosure.Url
 	filename := filepath.Join(dname + "/" + item.Title + ".mp3")
 	processMP3(url, start, end, filename)
