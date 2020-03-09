@@ -47,10 +47,10 @@ func main() {
 	for _, item := range newItems {
 		sem <- 1
 
-		go func(item *podfeed.Item, dname string, start, end int) {
-			processItem(item, podcast.Title, start, end)
+		go func(item *podfeed.Item, dname string, start, end int, database *sql.DB) {
+			processItem(item, podcast.Title, start, end, database)
 			<-sem
-		}(item, podcast.Title, *start, *end)
+		}(item, podcast.Title, *start, *end, database)
 	}
 }
 
@@ -80,7 +80,7 @@ func insertToPodcast(podcast podfeed.Podcast, database *sql.DB) []*podfeed.Item 
 	FROM podcast
 	WHERE podcast.Title = ?`)
 
-	rows, _ := database.Query(`SELECT item.Title
+	rows, _ := database.Query(`SELECT item.Title, item.Processed
 	FROM item
 	INNER JOIN podcast ON item.podcastid = podcast.id 
 	AND podcast.Title = ?`, podcast.Title)
@@ -89,12 +89,13 @@ func insertToPodcast(podcast podfeed.Podcast, database *sql.DB) []*podfeed.Item 
 		os.Mkdir(podcast.Title, 0700)
 	}
 
+	var isProcessed bool
 	var title string
 	var result int
 	var item *podfeed.Item
 	var newItems []*podfeed.Item
 	rows.Next()
-	rows.Scan(&title)
+	rows.Scan(&title, &isProcessed)
 
 	for i := len(podcast.Items) - 1; i >= 0; i-- {
 		item = &podcast.Items[i]
@@ -106,9 +107,13 @@ func insertToPodcast(podcast podfeed.Podcast, database *sql.DB) []*podfeed.Item 
 			statement.Exec(item.Title, item.Link, item.Duration, item.Author, item.Summary,
 				item.Subtitle, item.Description, item.Image.Href, item.Enclosure.Url, podcast.Title)
 			newItems = append(newItems, item)
+		} else if !isProcessed {
+			newItems = append(newItems, item)
+			rows.Next()
+			rows.Scan(&title, &isProcessed)
 		} else {
 			rows.Next()
-			rows.Scan(&title)
+			rows.Scan(&title, &isProcessed)
 		}
 	}
 
@@ -116,11 +121,28 @@ func insertToPodcast(podcast podfeed.Podcast, database *sql.DB) []*podfeed.Item 
 
 }
 
-func processItem(item *podfeed.Item, dname string, start, end int) string {
+func processItem(item *podfeed.Item, dname string, start, end int, database *sql.DB) string {
 	fmt.Println("Processing " + item.Title)
 	url := item.Enclosure.Url
 	filename := filepath.Join(dname + "/" + item.Title + ".mp3")
 	processMP3(url, start, end, filename)
+
+	statement, _ := database.Prepare(`UPDATE item
+		SET Processed = 1
+		WHERE Title = ?`)
+
+	result, err := statement.Exec(item.Title)
+	if err != nil {
+		log.Fatal(err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if rows != 1 {
+		log.Fatalf("expected to affect 1 row, affected %d", rows)
+	}
+
 	return filename
 }
 
@@ -141,7 +163,8 @@ func initializeDB(podcast podfeed.Podcast, database *sql.DB) {
 	statement, _ = database.Prepare(`CREATE TABLE IF NOT EXISTS item (
 		id INTEGER PRIMARY KEY, podcastid INTEGER, Title TEXT, Link TEXT, 
 		Duration TEXT, Author TEXT, Summary TEXT, Subtitle TEXT, 
-		Description TEXT, Image TEXT, EnclosureUrl TEXT,
+		Description TEXT, Image TEXT, EnclosureUrl TEXT, 
+		Processed boolean DEFAULT false,
 		FOREIGN KEY(podcastid) REFERENCES podcast(id), UNIQUE(Title))`)
 	statement.Exec()
 }
